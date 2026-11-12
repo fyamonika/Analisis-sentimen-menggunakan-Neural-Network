@@ -19,7 +19,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 from wordcloud import WordCloud
 
-st.set_page_config(page_title="Sentimen Kualitas Air", page_icon="💧", layout="wide")
+st.set_page_config(page_title="Analisis Sentimen Kualitas Air", page_icon="💧", layout="wide")
 
 st.markdown("""
 <style>
