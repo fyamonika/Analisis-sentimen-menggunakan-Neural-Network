@@ -29,7 +29,7 @@ plt.rcParams.update({
     "figure.autolayout": False,
 })
 
-st.set_page_config(page_title="Sentimen Listrik Pontianak", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Sentimen Kualitas Air", page_icon="💧", layout="wide")
 
 # ----------------------------------------------------------------------------
 # Konstanta
@@ -71,16 +71,16 @@ KAMUS_SLANG = {
 }
 
 KATA_POSITIF = {
-    "menyala", "nyala", "pulih", "normal", "kembali", "lancar", "aman", "stabil",
-    "terima kasih", "apresiasi", "sigap", "cepat", "tertangani", "teratasi",
-    "berhasil", "membaik", "bantuan", "lega", "siaga", "kompensasi", "handal",
-    "puas", "semangat", "dukungan", "bersyukur", "alhamdulillah",
+    "bersih", "jernih", "segar", "layak", "aman", "sehat", "bagus", "baik",
+    "normal", "lancar", "mengalir", "pulih", "membaik", "teratasi",
+    "terima kasih", "apresiasi", "sigap", "cepat", "berhasil", "bantuan",
+    "tersedia", "melimpah", "berkualitas", "terawat", "memuaskan", "alhamdulillah",
 }
 KATA_NEGATIF = {
-    "padam", "mati", "gelap", "gangguan", "mengganggu", "terganggu", "parah",
-    "lama", "kecewa", "marah", "rugi", "kerugian", "rusak", "gagal", "buruk",
-    "lumpuh", "keluhan", "sengsara", "menderita", "panas", "byarpet", "drop",
-    "protes", "kesal", "capek", "tersiksa", "sering",
+    "tercemar", "keruh", "kotor", "bau", "berbau", "limbah", "beracun",
+    "berbahaya", "krisis", "kering", "macet", "rusak", "buruk", "keluhan",
+    "kecewa", "parah", "susah", "sulit", "langka", "mahal", "gagal",
+    "pencemaran", "sakit", "gatal", "kuning", "asin", "berlumpur",
 }
 STOPWORD = {
     "yang", "di", "ke", "dan", "dari", "untuk", "dengan", "ini", "itu", "pada",
@@ -253,17 +253,40 @@ def prediksi(teks, hasil_model):
 # ----------------------------------------------------------------------------
 # Sidebar
 # ----------------------------------------------------------------------------
-st.title("⚡ Analisis Sentimen Pemadaman Listrik")
-st.caption("Pipeline: cleansing → normalisasi → pelabelan rule-based → TF-IDF → Neural Network (MLP) · versi: normalisasi-v5")
+# CSS dashboard mengikuti referensi
+st.markdown("""
+<style>
+.stApp {background:#fff;color:#303443;}
+[data-testid="stSidebar"] {background:#f0f2f6;}
+[data-testid="stSidebar"] > div:first-child {padding-top:2.4rem;}
+.app-title {display:flex;align-items:center;gap:18px;color:#303443;
+ font-size:clamp(27px,3vw,42px);font-weight:800;letter-spacing:-1px;margin:18px 0 8px;}
+.app-title span:first-child {font-size:42px;}
+.source-card {background:#dcefe7;color:#07833f;border-radius:9px;padding:18px 16px;
+ font-size:14px;line-height:1.5;margin-top:18px;}
+.metric-number {color:#202938;font-size:32px;line-height:1.3;}
+.date-number {font-size:28px;white-space:nowrap;}
+div[data-testid="stTabs"] button[role="tab"] {font-size:14px;}
+div[data-testid="stTabs"] button[aria-selected="true"] {color:#f04452;border-bottom-color:#f04452;}
+div[data-testid="stDataFrame"] {border:1px solid #e3e6eb;border-radius:9px;}
+h1,h2,h3 {color:#303443;}
+@media(max-width:900px) {.app-title{font-size:27px;flex-wrap:wrap;}
+.date-number{font-size:20px;white-space:normal;}}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="app-title"><span>💧</span><span>Analisis Sentimen Kualitas Air (Neural Network)</span></div>', unsafe_allow_html=True)
+st.caption("Pipeline: cleansing → normalisasi → pelabelan rule-based → TF-IDF → Neural Network (MLP)")
 
 with st.sidebar:
-    st.header("Pengaturan")
-    unggahan = st.file_uploader("Unggah dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
-    hapus_duplikat = st.checkbox("Hapus tweet duplikat", value=True,
-                                 help="Duplikat yang jatuh di data latih dan uji membuat evaluasi terlalu optimis.")
-    hidden = st.slider("Neuron hidden layer", 10, 300, 100, step=10)
-    max_iter = st.slider("Maksimum iterasi", 100, 1000, 300, step=50)
-    st.caption("Aktivasi ReLU · Optimizer Adam · Rasio data latih:uji = 80:20")
+    st.markdown("### ⚙️ Pengaturan")
+    st.markdown("**Upload data (CSV/XLSX)**")
+    unggahan = st.file_uploader("Pilih file dataset", type=["csv", "xlsx", "xls"])
+    st.caption("200MB per file • CSV, XLSX")
+    st.markdown("---")
+    hidden = st.slider("Neuron tersembunyi", 10, 300, 100, step=10)
+    max_iter = st.slider("Max iterasi", 100, 1000, 300, step=50)
+    st.caption("Aktivasi ReLU • Optimizer Adam • Rasio data latih:uji = 80:20")
 
 # ----------------------------------------------------------------------------
 # Memuat data
@@ -284,7 +307,13 @@ except Exception as e:  # noqa: BLE001
     st.error(f"Gagal membaca data: {e}")
     st.stop()
 
-df = proses_data(mentah, hapus_duplikat)
+df = proses_data(mentah, True)
+with st.sidebar:
+    st.markdown(
+        f'<div class="source-card">Sumber data: <b>{sumber}</b><br><br>'
+        f'<b>{len(df):,}</b> tweet dipakai</div>'.replace(",", "."),
+        unsafe_allow_html=True
+    )
 hasil_model = latih_model(tuple(df["normal_text"]), tuple(df["sentimen"]), hidden, max_iter)
 
 tab_data, tab_norm, tab_dist, tab_wc, tab_eval, tab_pred = st.tabs(
@@ -295,18 +324,32 @@ tab_data, tab_norm, tab_dist, tab_wc, tab_eval, tab_pred = st.tabs(
 # Tab 1: data + pemrosesan (Langkah 3 & 4)
 # ----------------------------------------------------------------------------
 with tab_data:
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tweet dibaca", f"{len(mentah):,}".replace(",", "."))
-    c2.metric("Tweet dipakai", f"{len(df):,}".replace(",", "."))
-    c3.metric("Duplikat dibuang", f"{len(mentah) - len(df):,}".replace(",", "."))
-    st.caption(f"Sumber data: {sumber}")
-    st.subheader("Hasil cleansing, normalisasi, dan pelabelan")
-    tampil_tabel(df[["full_text", "clean_text", "normal_text", "sentimen"]].head(50))
-    st.download_button("⬇️ Unduh data hasil proses (CSV)",
-                       df.to_csv(sep=";", index=False).encode("utf-8-sig"),
-                       file_name="Tweet_Data_normalized.csv", mime="text/csv")
+    st.subheader("Data setelah pembersihan, normalisasi & pelabelan")
+    tanggal = mentah["created_at"].dropna()
+    rentang = (
+        f"{tanggal.min():%Y-%m-%d} s/d {tanggal.max():%Y-%m-%d}"
+        if not tanggal.empty else "Tidak tersedia"
+    )
+    kiri, kanan = st.columns(2)
+    with kiri:
+        st.markdown("Jumlah tweet")
+        st.markdown(f"<div class='metric-number'>{len(df):,}</div>".replace(",", "."), unsafe_allow_html=True)
+    with kanan:
+        st.markdown("Rentang waktu")
+        st.markdown(f"<div class='metric-number date-number'>{rentang}</div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    tampil_tabel(
+        df[["created_at", "username", "full_text", "clean_text", "normal_text", "sentimen"]]
+        .rename(columns={"normal_text": "normalized_text"}),
+        height=430
+    )
+    st.download_button(
+        "⬇️ Unduh data hasil proses (CSV)",
+        df.to_csv(sep=";", index=False).encode("utf-8-sig"),
+        file_name="Data_Kualitas_Air_normalized.csv",
+        mime="text/csv"
+    )
 
-# ----------------------------------------------------------------------------
 # Tab Normalisasi (tampilan hasil normalisasi di dashboard)
 # ----------------------------------------------------------------------------
 with tab_norm:
@@ -507,7 +550,7 @@ with tab_pred:
     st.subheader("Prediksi sentimen teks baru")
     teks_baru = st.text_area(
         "Masukkan teks", height=110, key="teks_baru",
-        value="Listrik sudah menyala kembali, warga lega dan terima kasih kepada petugas PLN")
+        value="Air sungai kini lebih jernih dan bersih, terima kasih atas perbaikan kualitas air")
     if st.button("Prediksi Sentimen", type="primary", key="tombol_prediksi"):
         if not teks_baru.strip():
             st.warning("Teks masih kosong. Ketik kalimat terlebih dahulu.")
