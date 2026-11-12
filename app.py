@@ -243,21 +243,18 @@ with tab1:
 with tab2:
     st.subheader("Hasil Normalisasi")
 
-    tabel = df[["full_text", "clean_text", "normal_text"]].copy()
+    tabel = df[["created_at", "username", "full_text", "clean_text", "normal_text"]].copy()
     tabel["berubah"] = tabel["clean_text"] != tabel["normal_text"]
-    tabel["kata diganti"] = [kata_diganti(a, b) for a, b in zip(tabel["clean_text"], tabel["normal_text"])]
+    tabel["kata_diganti"] = [kata_diganti(a, b) for a, b in zip(tabel["clean_text"], tabel["normal_text"])]
 
-    st.write(f"**{int(tabel['berubah'].sum())}** dari **{len(tabel)}** tweet berubah pada tahap normalisasi.")
-    hanya_berubah = st.checkbox("Tampilkan hanya tweet yang berubah", value=False)
-    if hanya_berubah:
+    c1, c2 = st.columns(2)
+    c1.metric("Jumlah tweet", len(tabel))
+    c2.metric("Tweet yang berubah", int(tabel["berubah"].sum()))
+
+    if st.checkbox("Tampilkan hanya tweet yang berubah", value=False):
         tabel = tabel[tabel["berubah"]]
 
-    st.dataframe(
-        tabel[["full_text", "clean_text", "normal_text", "kata diganti"]].rename(columns={
-            "full_text": "teks asli",
-            "clean_text": "setelah cleansing",
-            "normal_text": "setelah normalisasi"}),
-        use_container_width=True)
+    st.dataframe(tabel[["created_at", "username", "full_text", "clean_text", "normal_text", "kata_diganti"]])
 
     with st.expander("📖 Kamus normalisasi yang dipakai"):
         st.dataframe(df_kamus, use_container_width=True)
