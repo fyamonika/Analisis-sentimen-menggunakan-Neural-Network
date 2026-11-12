@@ -16,6 +16,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
 
 st.set_page_config(page_title="Sentimen Kualitas Air", page_icon="💧", layout="wide")
 st.title("💧 Analisis Sentimen Kualitas Air (Neural Network)")
+st.caption("Versi kode: normalisasi-v4")
 
 KELAS = ["positif", "netral", "negatif"]
 WARNA = {"positif": "#2e9e5b", "netral": "#7f8c8d", "negatif": "#d64545"}
@@ -135,7 +136,8 @@ def baca_bytes(nama: str, isi: bytes) -> pd.DataFrame:
 
 def cari_file_lokal():
     for folder in (FOLDER, os.getcwd()):
-        for nama in ("tweet_data.csv", "Tweet_Data.csv", "tweet_data.xlsx", "Tweet_Data.xlsx"):
+        for nama in ("tweet_data.csv", "Tweet_Data.csv", "tweet_data.xlsx", "Tweet_Data.xlsx",
+                     "data_normalisasi.csv"):
             p = os.path.join(folder, nama)
             if os.path.exists(p):
                 return p
@@ -197,6 +199,7 @@ else:
     if lokal is None:
         st.info("📂 Belum ada data. Upload file **tweet_data.csv** (atau .xlsx) lewat panel di sebelah kiri, "
                 "atau letakkan file tersebut di folder yang sama dengan app.py.")
+        st.caption("File yang terbaca di folder app: " + ", ".join(sorted(os.listdir(FOLDER))))
         st.stop()
     nama_file = os.path.basename(lokal)
     with open(lokal, "rb") as fh:
