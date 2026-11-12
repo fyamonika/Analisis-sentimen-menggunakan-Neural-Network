@@ -1,3 +1,4 @@
+import difflib
 import io
 import os
 import re
@@ -97,8 +98,14 @@ def normalisasi(teks: str) -> str:
     return re.sub(r"\s+", " ", " ".join(kata)).strip()
 
 
-def preprocess(teks: str) -> str:
-    return normalisasi(bersihkan(teks))
+def kata_diganti(sebelum: str, sesudah: str) -> str:
+    """Daftar kata yang berubah, contoh: 'gak → tidak, banget → sekali'."""
+    a, b = sebelum.split(), sesudah.split()
+    hasil = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
+        if tag != "equal":
+            hasil.append(f"{' '.join(a[i1:i2])} → {' '.join(b[j1:j2])}")
+    return ", ".join(hasil)
 
 
 def hitung_kata(teks: str, kamus) -> int:
@@ -189,7 +196,7 @@ else:
     lokal = cari_file_lokal()
     if lokal is None:
         st.info("📂 Belum ada data. Upload file **tweet_data.csv** (atau .xlsx) lewat panel di sebelah kiri, "
-                f"atau letakkan file tersebut di folder aplikasi ini:\n\n`{FOLDER}`")
+                "atau letakkan file tersebut di folder yang sama dengan app.py.")
         st.stop()
     nama_file = os.path.basename(lokal)
     with open(lokal, "rb") as fh:
@@ -207,19 +214,11 @@ if df.empty:
 
 st.sidebar.success(f"Sumber data: {nama_file}\n\n{len(df)} tweet dipakai")
 
-# ---------------- Simpan data normalisasi ke file ----------------
+# ---------------- Data untuk download (tanpa simpan ke folder server) ----------------
 kolom_simpan = {"clean_text": "teks_cleansing", "normal_text": "teks_normalisasi"}
 df_normal = df[["created_at", "username", "full_text", "clean_text", "normal_text"]].rename(columns=kolom_simpan)
 df_berlabel = df[["created_at", "username", "full_text", "clean_text", "normal_text", "sentimen"]].rename(columns=kolom_simpan)
 df_kamus = pd.DataFrame(list(KAMUS_SLANG.items()), columns=["kata_tidak_baku", "kata_baku"])
-
-try:
-    df_normal.to_csv(os.path.join(FOLDER, "data_normalisasi.csv"), index=False, encoding="utf-8-sig")
-    df_berlabel.to_csv(os.path.join(FOLDER, "data_normalisasi_berlabel.csv"), index=False, encoding="utf-8-sig")
-    df_kamus.to_csv(os.path.join(FOLDER, "kamus_normalisasi.csv"), index=False, encoding="utf-8-sig")
-    tersimpan = True
-except OSError:
-    tersimpan = False  # folder tidak bisa ditulis (mis. di hosting); gunakan tombol download
 
 # ---------------- Latih model (di luar tab agar tab Prediksi selalu bisa dipakai) ----------------
 model_siap = df["sentimen"].value_counts().min() >= 2 and df["sentimen"].nunique() >= 2
@@ -243,23 +242,32 @@ with tab1:
 # ---------------- Normalisasi ----------------
 with tab2:
     st.subheader("Hasil Normalisasi")
-    berubah = df[df["clean_text"] != df["normal_text"]]
+
+    berubah = df[df["clean_text"] != df["normal_text"]].copy()
     st.write(f"**{len(berubah)}** dari **{len(df)}** tweet berubah pada tahap normalisasi.")
-    st.dataframe(berubah[["clean_text", "normal_text"]].rename(
-        columns={"clean_text": "sebelum normalisasi", "normal_text": "sesudah normalisasi"}))
 
-    if tersimpan:
-        st.success(f"✅ Data tersimpan otomatis di folder aplikasi: `{FOLDER}`  \n"
-                   "(data_normalisasi.csv, data_normalisasi_berlabel.csv, kamus_normalisasi.csv)")
-    else:
-        st.warning("Folder aplikasi tidak bisa ditulis, gunakan tombol download di bawah.")
+    berubah["kata diganti"] = [kata_diganti(a, b) for a, b in zip(berubah["clean_text"], berubah["normal_text"])]
 
+    st.dataframe(
+        berubah[["full_text", "clean_text", "normal_text", "kata diganti"]].rename(columns={
+            "full_text": "teks asli",
+            "clean_text": "setelah cleansing",
+            "normal_text": "setelah normalisasi"}),
+        use_container_width=True)
+
+    with st.expander("📖 Kamus normalisasi yang dipakai"):
+        st.dataframe(df_kamus, use_container_width=True)
+
+    st.markdown("**Download hasil:**")
     d1, d2, d3 = st.columns(3)
-    d1.download_button("⬇️ data_normalisasi.csv", df_normal.to_csv(index=False, encoding="utf-8-sig"),
+    d1.download_button("⬇️ data_normalisasi.csv",
+                       df_normal.to_csv(index=False, encoding="utf-8-sig"),
                        "data_normalisasi.csv", "text/csv")
-    d2.download_button("⬇️ data_normalisasi_berlabel.csv", df_berlabel.to_csv(index=False, encoding="utf-8-sig"),
+    d2.download_button("⬇️ data_normalisasi_berlabel.csv",
+                       df_berlabel.to_csv(index=False, encoding="utf-8-sig"),
                        "data_normalisasi_berlabel.csv", "text/csv")
-    d3.download_button("⬇️ kamus_normalisasi.csv", df_kamus.to_csv(index=False, encoding="utf-8-sig"),
+    d3.download_button("⬇️ kamus_normalisasi.csv",
+                       df_kamus.to_csv(index=False, encoding="utf-8-sig"),
                        "kamus_normalisasi.csv", "text/csv")
 
 # ---------------- Distribusi ----------------
