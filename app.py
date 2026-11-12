@@ -4,49 +4,47 @@ import os
 import re
 from collections import Counter
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix,
+                             precision_recall_fscore_support)
+from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                             f1_score, confusion_matrix, classification_report)
+from wordcloud import WordCloud
 
-st.set_page_config(page_title="Sentimen Kualitas Air", page_icon="💧", layout="wide")
-st.title("💧 Analisis Sentimen Kualitas Air (Neural Network)")
-st.caption("Versi kode: normalisasi-v5")
+# Ukuran font & DPI eksplisit supaya grafik tidak berantakan
+plt.rcParams.update({
+    "figure.dpi": 100,
+    "savefig.dpi": 150,
+    "font.size": 10,
+    "axes.titlesize": 12,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "figure.autolayout": False,
+})
 
-KELAS = ["positif", "netral", "negatif"]
-WARNA = {"positif": "#2e9e5b", "netral": "#7f8c8d", "negatif": "#d64545"}
+st.set_page_config(page_title="Sentimen Listrik Pontianak", page_icon="⚡", layout="wide")
+
+# ----------------------------------------------------------------------------
+# Konstanta
+# ----------------------------------------------------------------------------
+LABEL_ORDER = ["positif", "netral", "negatif"]
+WARNA = {"positif": "#2e9e5b", "netral": "#4a90d9", "negatif": "#d64545"}
+CMAP = {"positif": "Greens", "netral": "Blues", "negatif": "Reds"}
 EMOJI = {"positif": "😊", "netral": "😐", "negatif": "😠"}
-FOLDER = os.path.dirname(os.path.abspath(__file__))
 
-# ---------------- Kamus ----------------
-KATA_POSITIF = {
-    "aman", "lega", "selamat", "bantuan", "pulih", "jernih", "bersih", "segar",
-    "layak", "bening", "sehat", "lancar", "bagus", "mantap", "membaik", "baik",
-    "sukses", "berhasil", "puas", "senang", "bahagia", "terima kasih",
-    "alhamdulillah", "syukurlah", "rekomendasi", "apresiasi", "bangga",
-    "nyaman", "membantu", "terjaga", "memenuhi", "tersertifikasi", "inovasi",
-}
-KATA_NEGATIF = {
-    "keruh", "bau", "berbau", "kotor", "tercemar", "pencemaran", "parah",
-    "rusak", "bahaya", "berbahaya", "limbah", "gatal", "diare", "buruk",
-    "kecewa", "mengecewakan", "kesel", "resah", "krisis", "susah", "bocor",
-    "mengeluh", "bakteri", "asam", "asin", "berbusa", "berlumpur", "jelek",
-    "mengkhawatirkan", "memprihatinkan", "iritasi", "mati", "sulit", "kesulitan",
-}
-STOPWORDS = {
-    "yang", "dan", "di", "ke", "dari", "untuk", "ini", "itu", "dengan", "pada",
-    "juga", "ada", "sudah", "akan", "atau", "saya", "kami", "kita", "nya", "rt",
-    "tapi", "karena", "kalau", "jadi", "yg", "aja", "dong", "sih", "banget",
-    "lagi", "udah", "tidak", "bisa", "mau", "hari", "air", "sekali", "saja",
+ALIAS_KOLOM = {
+    "created_at": ["created_at", "created at", "date", "tanggal", "waktu", "time", "timestamp", "datetime"],
+    "username": ["username", "user_name", "user", "screen_name", "nama", "author", "name"],
+    "full_text": ["full_text", "text", "tweet", "content", "isi", "komentar", "comment", "teks", "isi_tweet"],
 }
 
-# Kamus normalisasi: kata tidak baku / singkatan -> kata baku
 KAMUS_SLANG = {
     "gak": "tidak", "ga": "tidak", "nggak": "tidak", "ngga": "tidak", "enggak": "tidak",
     "engga": "tidak", "tdk": "tidak", "gk": "tidak", "tak": "tidak",
@@ -59,62 +57,103 @@ KAMUS_SLANG = {
     "lg": "lagi", "lgi": "lagi", "skrg": "sekarang", "skrang": "sekarang",
     "bs": "bisa", "bsa": "bisa", "hrs": "harus", "org": "orang", "orng": "orang",
     "kmrn": "kemarin", "kalo": "kalau", "klo": "kalau", "kl": "kalau",
-    "dr": "dari", "pd": "pada", "mlm": "malam", "sm": "sama", "rmh": "rumah",
+    "dr": "dari", "pd": "pada", "mlm": "malam", "pagi2": "pagi", "sm": "sama",
     "makasih": "terima kasih", "terimakasih": "terima kasih", "trims": "terima kasih",
-    "thanks": "terima kasih", "thx": "terima kasih", "tq": "terima kasih", "tks": "terima kasih",
-    "bgmn": "bagaimana", "gmn": "bagaimana", "gimana": "bagaimana",
+    "thanks": "terima kasih", "thx": "terima kasih", "tq": "terima kasih",
+    "padem": "padam", "mati2": "mati", "idup": "hidup", "nyala": "menyala",
+    "byarpet": "byarpet", "bgmn": "bagaimana", "gmn": "bagaimana", "gimana": "bagaimana",
     "tlg": "tolong", "plis": "tolong", "pls": "tolong", "mohon2": "mohon",
-    "kran": "keran", "ngeluh": "mengeluh", "keluhkan": "mengeluh",
-    "kesal": "kesel", "cemar": "tercemar", "bgs": "bagus", "bgus": "bagus", "mantab": "mantap",
-    "jlk": "jelek", "alhamdulilah": "alhamdulillah", "syukur": "syukurlah",
-    "bnyk": "banyak", "byk": "banyak", "msh": "masih", "lbh": "lebih", "krg": "kurang",
-    "knp": "kenapa", "brp": "berapa", "dlm": "dalam", "kpd": "kepada", "sbg": "sebagai",
-    "tsb": "tersebut", "dll": "dan lain lain", "dsb": "dan sebagainya", "iya": "ya",
+    "pln": "pln", "pemadamannya": "pemadaman", "listriknya": "listrik",
+    # tambahan sesuai kosakata Tweet_Data.csv
+    "yaelah": "aduh", "yaa": "ya", "yaaa": "ya", "duh": "aduh", "sumpah": "sungguh",
+    "info": "informasi", "update": "pembaruan", "syukurlah": "bersyukur", "hidup": "menyala",
+    "deh": "", "sih": "", "dong": "", "nih": "", "tuh": "", "lho": "", "kok": "",
 }
 
-ALIAS_KOLOM = {
-    "created_at": ["created_at", "created at", "date", "tanggal", "waktu", "time", "timestamp", "datetime"],
-    "username": ["username", "user_name", "user", "screen_name", "nama", "author", "name"],
-    "full_text": ["full_text", "text", "tweet", "content", "isi", "komentar", "comment", "teks", "isi_tweet"],
+KATA_POSITIF = {
+    "menyala", "nyala", "pulih", "normal", "kembali", "lancar", "aman", "stabil",
+    "terima kasih", "apresiasi", "sigap", "cepat", "tertangani", "teratasi",
+    "berhasil", "membaik", "bantuan", "lega", "siaga", "kompensasi", "handal",
+    "puas", "semangat", "dukungan", "bersyukur", "alhamdulillah",
+}
+KATA_NEGATIF = {
+    "padam", "mati", "gelap", "gangguan", "mengganggu", "terganggu", "parah",
+    "lama", "kecewa", "marah", "rugi", "kerugian", "rusak", "gagal", "buruk",
+    "lumpuh", "keluhan", "sengsara", "menderita", "panas", "byarpet", "drop",
+    "protes", "kesal", "capek", "tersiksa", "sering",
+}
+STOPWORD = {
+    "yang", "di", "ke", "dan", "dari", "untuk", "dengan", "ini", "itu", "pada",
+    "adalah", "atau", "juga", "karena", "akan", "ada", "tidak", "sudah", "saya",
+    "kami", "kita", "mereka", "dalam", "oleh", "bisa", "udah", "nya", "aja",
+    "yg", "dgn", "utk", "tp", "sih", "lah", "kok", "ya", "kan", "rt", "amp",
+    "para", "sebagai", "lagi", "masih", "banget", "gak", "nggak", "ga",
 }
 
 
-# ---------------- Preprocessing ----------------
-def bersihkan(teks: str) -> str:
-    """Cleansing + case folding."""
-    teks = str(teks)
-    teks = re.sub(r"http\S+|www\.\S+", " ", teks)       # URL
-    teks = re.sub(r"@\w+", " ", teks)                    # mention
-    teks = re.sub(r"#\w+", " ", teks)                    # hashtag
-    teks = re.sub(r"\brt\b", " ", teks, flags=re.I)      # RT
-    teks = re.sub(r"[^a-zA-Z\s]", " ", teks)             # simbol & angka
-    teks = teks.lower()                                  # case folding
-    teks = re.sub(r"\s+", " ", teks).strip()             # spasi berlebih
-    return teks
+# ----------------------------------------------------------------------------
+# Helper tampilan
+# ----------------------------------------------------------------------------
+def tampil_tabel(data, **kw):
+    """st.dataframe lebar penuh; kompatibel dengan Streamlit lama maupun baru."""
+    try:
+        st.dataframe(data, width="stretch", **kw)
+    except Exception:  # Streamlit versi lama belum mengenal width="stretch"
+        st.dataframe(data, use_container_width=True, **kw)
 
 
-def normalisasi(teks: str) -> str:
-    """Huruf berulang (keruuuh -> keruh) dan kata tidak baku -> baku."""
-    teks = re.sub(r"(.)\1{2,}", r"\1", teks)
-    kata = [KAMUS_SLANG.get(k, k) for k in teks.split()]
+def tampil_plot(fig):
+    """Render figure ke PNG lalu tampilkan, supaya skala & font konsisten
+    di semua versi Streamlit (tidak bergantung pada perilaku st.pyplot)."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    data = buf.getvalue()
+    try:
+        st.image(data, width="stretch")
+    except Exception:  # Streamlit versi lama
+        st.image(data, use_column_width=True)
+
+
+# ----------------------------------------------------------------------------
+# Langkah 3: pemrosesan teks
+# ----------------------------------------------------------------------------
+def clean_text(text):
+    text = str(text)
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)   # URL
+    text = re.sub(r"@\w+", " ", text)                    # mention
+    text = re.sub(r"#\w+", " ", text)                    # hashtag
+    text = re.sub(r"\bRT\b", " ", text)                  # tanda retweet
+    text = text.lower()                                  # case folding
+    text = re.sub(r"[^a-z\s]", " ", text)                # simbol & angka
+    text = re.sub(r"\s+", " ", text).strip()             # spasi berlebih
+    return text
+
+
+def normalisasi_text(text):
+    text = re.sub(r"(.)\1{2,}", r"\1", text)             # paraaah -> parah
+    kata = [KAMUS_SLANG.get(k, k) for k in text.split()]
     return re.sub(r"\s+", " ", " ".join(kata)).strip()
 
 
-def kata_diganti(sebelum: str, sesudah: str) -> str:
+def kata_diganti(sebelum, sesudah):
     """Daftar kata yang berubah, contoh: 'gak → tidak, banget → sekali'."""
     a, b = sebelum.split(), sesudah.split()
     hasil = []
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
         if tag != "equal":
-            hasil.append(f"{' '.join(a[i1:i2])} → {' '.join(b[j1:j2])}")
+            hasil.append(f"{' '.join(a[i1:i2]) or '∅'} → {' '.join(b[j1:j2]) or '∅'}")
     return ", ".join(hasil)
 
 
-def hitung_kata(teks: str, kamus) -> int:
+# ----------------------------------------------------------------------------
+# Langkah 4: pelabelan rule-based
+# ----------------------------------------------------------------------------
+def hitung_kata(teks, kamus):
     return sum(len(re.findall(rf"\b{re.escape(k)}\b", teks)) for k in kamus)
 
 
-def beri_label(teks: str) -> str:
+def label_sentimen(teks):
     pos, neg = hitung_kata(teks, KATA_POSITIF), hitung_kata(teks, KATA_NEGATIF)
     if pos > neg:
         return "positif"
@@ -123,31 +162,33 @@ def beri_label(teks: str) -> str:
     return "netral"
 
 
-# ---------------- Memuat data ----------------
-def baca_bytes(nama: str, isi: bytes) -> pd.DataFrame:
+# ----------------------------------------------------------------------------
+# Membaca data
+# ----------------------------------------------------------------------------
+def baca_file(sumber, nama):
     if nama.lower().endswith((".xlsx", ".xls")):
-        return pd.read_excel(io.BytesIO(isi))
+        return pd.read_excel(sumber)
     for enc in ("utf-8-sig", "utf-8", "latin-1"):
         try:
-            return pd.read_csv(io.BytesIO(isi), sep=None, engine="python", encoding=enc)
+            if hasattr(sumber, "seek"):
+                sumber.seek(0)
+            return pd.read_csv(sumber, sep=None, engine="python", encoding=enc)  # pemisah otomatis
         except UnicodeDecodeError:
             continue
-    raise ValueError("File tidak dapat dibaca (encoding tidak dikenali).")
+    raise ValueError("File tidak dapat dibaca.")
 
 
-def cari_file_lokal():
-    for folder in (FOLDER, os.getcwd()):
-        for nama in ("tweet_data.csv", "Tweet_Data.csv", "tweet_data.xlsx", "Tweet_Data.xlsx",
-                     "data_normalisasi.csv"):
-            p = os.path.join(folder, nama)
-            if os.path.exists(p):
-                return p
+def cari_file_default():
+    folder = [os.path.dirname(os.path.abspath(__file__)), os.getcwd()] if "__file__" in globals() else [os.getcwd()]
+    for d in dict.fromkeys(folder):
+        for nama in sorted(os.listdir(d)):
+            if nama.lower() in ("tweet_data.csv", "tweet_data.xlsx"):
+                return os.path.join(d, nama)
     return None
 
 
-@st.cache_data(show_spinner=False)
-def muat_data(nama: str, isi: bytes) -> pd.DataFrame:
-    df = baca_bytes(nama, isi)
+def rapikan_kolom(df):
+    df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     peta = {}
     for target, alias in ALIAS_KOLOM.items():
@@ -157,95 +198,121 @@ def muat_data(nama: str, isi: bytes) -> pd.DataFrame:
                 break
     df = df.rename(columns=peta)
     if "full_text" not in df.columns:
-        raise ValueError(f"Kolom isi tweet (full_text) tidak ditemukan. Kolom yang terbaca: {list(df.columns)}")
+        raise ValueError(f"Kolom isi tweet tidak ditemukan. Kolom terbaca: {list(df.columns)}")
     if "username" not in df.columns:
         df["username"] = "tidak_diketahui"
     if "created_at" not in df.columns:
         df["created_at"] = pd.NaT
-    df = df[["created_at", "username", "full_text"]].dropna(subset=["full_text"]).copy()
+    df = df[["created_at", "username", "full_text"]].dropna(subset=["full_text"])
     df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-    df = df.drop_duplicates(subset=["full_text"]).reset_index(drop=True)
-    df["clean_text"] = df["full_text"].apply(bersihkan)        # cleansing
-    df["normal_text"] = df["clean_text"].apply(normalisasi)    # normalisasi
-    df = df[df["normal_text"].str.len() > 0].drop_duplicates(subset="normal_text").reset_index(drop=True)
-    df["sentimen"] = df["normal_text"].apply(beri_label)
     return df
 
 
-@st.cache_resource(show_spinner=False)
-def latih_model(teks: tuple, labels: tuple, hidden: int, max_iter: int):
-    y_all = list(labels)
-    strat = y_all if pd.Series(y_all).value_counts().min() >= 2 else None
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        list(teks), y_all, test_size=0.2, random_state=42, stratify=strat)
-    tfidf = TfidfVectorizer(ngram_range=(1, 2), min_df=1)
-    Xtr = tfidf.fit_transform(X_tr)
-    Xte = tfidf.transform(X_te)
-    mlp = MLPClassifier(hidden_layer_sizes=(hidden,), activation="relu", solver="adam",
-                        max_iter=max_iter, random_state=42)
-    mlp.fit(Xtr, y_tr)
-    return tfidf, mlp, y_te, mlp.predict(Xte), len(X_tr)
+@st.cache_data(show_spinner="Memproses teks...")
+def proses_data(df_mentah, hapus_duplikat):
+    df = df_mentah.copy()
+    df["clean_text"] = df["full_text"].apply(clean_text)
+    df["normal_text"] = df["clean_text"].apply(normalisasi_text)
+    df = df[df["normal_text"].str.len() > 0]
+    if hapus_duplikat:
+        df = df.drop_duplicates(subset="normal_text")
+    df = df.reset_index(drop=True)
+    df["sentimen"] = df["normal_text"].apply(label_sentimen)
+    return df
 
 
-# ---------------- Sidebar ----------------
-st.sidebar.header("⚙️ Pengaturan")
-upload = st.sidebar.file_uploader("Upload data (CSV/XLSX)", type=["csv", "xlsx"])
-hidden = st.sidebar.slider("Neuron tersembunyi", 10, 300, 100, 10)
-max_iter = st.sidebar.slider("Max iterasi", 100, 1000, 300, 50)
+# ----------------------------------------------------------------------------
+# Langkah 7: model
+# ----------------------------------------------------------------------------
+@st.cache_resource(show_spinner="Melatih model Neural Network...")
+def latih_model(teks, label, hidden, max_iter):
+    X, y = pd.Series(list(teks)), pd.Series(list(label))
+    strat = y if y.value_counts().min() >= 2 else None
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=strat)
+    vec = TfidfVectorizer(ngram_range=(1, 2), stop_words=list(STOPWORD))
+    Xtr = vec.fit_transform(X_train)
+    Xte = vec.transform(X_test)
+    model = MLPClassifier(hidden_layer_sizes=(hidden,), activation="relu", solver="adam",
+                          max_iter=max_iter, random_state=42)
+    model.fit(Xtr, y_train)
+    y_pred = model.predict(Xte)
+    return {"vec": vec, "model": model, "y_test": y_test.tolist(), "y_pred": list(y_pred),
+            "n_train": len(X_train), "n_test": len(X_test), "n_fitur": Xtr.shape[1]}
 
-if upload is not None:
-    nama_file, isi_file = upload.name, upload.getvalue()
-else:
-    lokal = cari_file_lokal()
-    if lokal is None:
-        st.info("📂 Belum ada data. Upload file **tweet_data.csv** (atau .xlsx) lewat panel di sebelah kiri, "
-                "atau letakkan file tersebut di folder yang sama dengan app.py.")
-        st.caption("File yang terbaca di folder app: " + ", ".join(sorted(os.listdir(FOLDER))))
-        st.stop()
-    nama_file = os.path.basename(lokal)
-    with open(lokal, "rb") as fh:
-        isi_file = fh.read()
 
+def prediksi(teks, hasil_model):
+    dibersihkan = clean_text(teks)
+    bersih = normalisasi_text(dibersihkan)
+    model, vec = hasil_model["model"], hasil_model["vec"]
+    proba = model.predict_proba(vec.transform([bersih]))[0]
+    label = model.classes_[int(np.argmax(proba))]
+    return dibersihkan, bersih, label, dict(zip(model.classes_, proba))
+
+
+# ----------------------------------------------------------------------------
+# Sidebar
+# ----------------------------------------------------------------------------
+st.title("⚡ Analisis Sentimen Pemadaman Listrik")
+st.caption("Pipeline: cleansing → normalisasi → pelabelan rule-based → TF-IDF → Neural Network (MLP) · versi: normalisasi-v5")
+
+with st.sidebar:
+    st.header("Pengaturan")
+    unggahan = st.file_uploader("Unggah dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
+    hapus_duplikat = st.checkbox("Hapus tweet duplikat", value=True,
+                                 help="Duplikat yang jatuh di data latih dan uji membuat evaluasi terlalu optimis.")
+    hidden = st.slider("Neuron hidden layer", 10, 300, 100, step=10)
+    max_iter = st.slider("Maksimum iterasi", 100, 1000, 300, step=50)
+    st.caption("Aktivasi ReLU · Optimizer Adam · Rasio data latih:uji = 80:20")
+
+# ----------------------------------------------------------------------------
+# Memuat data
+# ----------------------------------------------------------------------------
 try:
-    df = muat_data(nama_file, isi_file)
-except Exception as e:
+    if unggahan is not None:
+        mentah = baca_file(unggahan, unggahan.name)
+        sumber = unggahan.name
+    else:
+        path = cari_file_default()
+        if path is None:
+            st.warning("Tweet_Data.csv tidak ditemukan. Unggah dataset lewat sidebar.")
+            st.stop()
+        mentah = baca_file(path, path)
+        sumber = os.path.basename(path)
+    mentah = rapikan_kolom(mentah)
+except Exception as e:  # noqa: BLE001
     st.error(f"Gagal membaca data: {e}")
     st.stop()
 
-if df.empty:
-    st.error("Data kosong setelah pembersihan. Periksa isi kolom teks pada file kamu.")
-    st.stop()
+df = proses_data(mentah, hapus_duplikat)
+hasil_model = latih_model(tuple(df["normal_text"]), tuple(df["sentimen"]), hidden, max_iter)
 
-st.sidebar.success(f"Sumber data: {nama_file}\n\n{len(df)} tweet dipakai")
+tab_data, tab_norm, tab_dist, tab_wc, tab_eval, tab_pred = st.tabs(
+    ["📄 Data & Teks", "🧹 Normalisasi", "📊 Distribusi", "☁️ WordCloud",
+     "🧠 Model & Evaluasi", "🔮 Prediksi"])
 
-# ---------------- Data untuk download (tanpa simpan ke folder server) ----------------
-kolom_simpan = {"clean_text": "teks_cleansing", "normal_text": "teks_normalisasi"}
-df_normal = df[["created_at", "username", "full_text", "clean_text", "normal_text"]].rename(columns=kolom_simpan)
-df_berlabel = df[["created_at", "username", "full_text", "clean_text", "normal_text", "sentimen"]].rename(columns=kolom_simpan)
-df_kamus = pd.DataFrame(list(KAMUS_SLANG.items()), columns=["kata_tidak_baku", "kata_baku"])
+# ----------------------------------------------------------------------------
+# Tab 1: data + pemrosesan (Langkah 3 & 4)
+# ----------------------------------------------------------------------------
+with tab_data:
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tweet dibaca", f"{len(mentah):,}".replace(",", "."))
+    c2.metric("Tweet dipakai", f"{len(df):,}".replace(",", "."))
+    c3.metric("Duplikat dibuang", f"{len(mentah) - len(df):,}".replace(",", "."))
+    st.caption(f"Sumber data: {sumber}")
+    st.subheader("Hasil cleansing, normalisasi, dan pelabelan")
+    tampil_tabel(df[["full_text", "clean_text", "normal_text", "sentimen"]].head(50))
+    st.download_button("⬇️ Unduh data hasil proses (CSV)",
+                       df.to_csv(sep=";", index=False).encode("utf-8-sig"),
+                       file_name="Tweet_Data_normalized.csv", mime="text/csv")
 
-# ---------------- Latih model (di luar tab agar tab Prediksi selalu bisa dipakai) ----------------
-model_siap = df["sentimen"].value_counts().min() >= 2 and df["sentimen"].nunique() >= 2
-if model_siap:
-    with st.spinner("Melatih model..."):
-        tfidf, mlp, y_te, y_pred, n_latih = latih_model(
-            tuple(df["normal_text"]), tuple(df["sentimen"]), hidden, max_iter)
-
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["📄 Data", "🧹 Normalisasi", "📊 Distribusi", "☁️ WordCloud", "🧠 Model & Evaluasi", "🔮 Prediksi"])
-
-# ---------------- Data ----------------
-with tab1:
-    st.subheader("Data setelah pembersihan, normalisasi & pelabelan")
-    c1, c2 = st.columns(2)
-    c1.metric("Jumlah tweet", len(df))
-    tgl = df["created_at"].dropna()
-    c2.metric("Rentang waktu", f"{tgl.min():%Y-%m-%d} s/d {tgl.max():%Y-%m-%d}" if len(tgl) else "-")
-    st.dataframe(df[["created_at", "username", "full_text", "clean_text", "normal_text", "sentimen"]])
-
-# ---------------- Normalisasi ----------------
-with tab2:
+# ----------------------------------------------------------------------------
+# Tab Normalisasi (tampilan hasil normalisasi di dashboard)
+# ----------------------------------------------------------------------------
+with tab_norm:
     st.subheader("🧹 Hasil Normalisasi")
+    st.caption("Normalisasi mengubah kata tidak baku/singkatan menjadi kata baku "
+               "(contoh: gak → tidak, udah → sudah) dan merapikan huruf berulang (paraaah → parah).")
 
     tabel = df[["created_at", "username", "full_text", "clean_text", "normal_text"]].copy()
     tabel["berubah"] = tabel["clean_text"] != tabel["normal_text"]
@@ -255,9 +322,9 @@ with tab2:
     c1, c2, c3 = st.columns(3)
     c1.metric("Jumlah tweet", len(tabel))
     c2.metric("Tweet yang berubah", n_berubah)
-    c3.metric("Persentase berubah", f"{n_berubah / len(tabel):.1%}")
+    c3.metric("Persentase berubah", f"{n_berubah / max(len(tabel), 1):.1%}")
 
-    # --- Contoh sebelum -> sesudah ---
+    # Contoh sebelum -> sesudah
     st.markdown("#### Contoh sebelum → sesudah")
     contoh = tabel[tabel["berubah"]].head(5)
     if contoh.empty:
@@ -269,7 +336,7 @@ with tab2:
         st.caption(f"Kata diganti: {r['kata_diganti']}")
         st.divider()
 
-    # --- Kata yang paling sering diganti ---
+    # Kata yang paling sering diganti
     st.markdown("#### Kata yang paling sering diganti")
     hitung = Counter()
     for s in tabel["kata_diganti"]:
@@ -277,163 +344,179 @@ with tab2:
             if item:
                 hitung[item] += 1
     if hitung:
-        top = pd.DataFrame(hitung.most_common(15), columns=["penggantian", "jumlah"])
-        st.dataframe(top, hide_index=True, use_container_width=True)
+        tampil_tabel(pd.DataFrame(hitung.most_common(15), columns=["penggantian", "jumlah"]),
+                     hide_index=True)
     else:
         st.caption("Belum ada kata yang diganti.")
 
-    # --- Uji normalisasi langsung ---
+    # Uji normalisasi langsung
     st.markdown("#### Coba normalisasi teks sendiri")
-    uji = st.text_input("Ketik kalimat tidak baku:", "airnya keruuuh bgt gak layak dipake, udh lama kecewa")
+    uji = st.text_input("Ketik kalimat tidak baku:",
+                        "listriknya padaaam lagi, udh lama bgt gak nyala yaelah",
+                        key="uji_normalisasi")
     if uji.strip():
-        u_bersih = bersihkan(uji)
-        u_norm = normalisasi(u_bersih)
+        u_bersih = clean_text(uji)
+        u_norm = normalisasi_text(u_bersih)
         st.write("Setelah cleansing:", f"`{u_bersih}`")
         st.write("Setelah normalisasi:", f"`{u_norm}`")
         st.write("Kata diganti:", kata_diganti(u_bersih, u_norm) or "-")
 
-    # --- Tabel lengkap ---
+    # Tabel lengkap
     st.markdown("#### Tabel lengkap")
-    hanya_berubah = st.checkbox("Tampilkan hanya tweet yang berubah", value=False)
+    hanya_berubah = st.checkbox("Tampilkan hanya tweet yang berubah", value=False,
+                                key="filter_berubah")
     tampil = tabel[tabel["berubah"]] if hanya_berubah else tabel
-    st.dataframe(
-        tampil[["created_at", "username", "full_text", "clean_text", "normal_text", "kata_diganti"]],
-        use_container_width=True)
+    tampil_tabel(tampil[["created_at", "username", "full_text", "clean_text",
+                         "normal_text", "kata_diganti"]])
 
+    df_kamus = pd.DataFrame(list(KAMUS_SLANG.items()), columns=["kata_tidak_baku", "kata_baku"])
     with st.expander("📖 Kamus normalisasi yang dipakai"):
-        st.dataframe(df_kamus, use_container_width=True)
+        tampil_tabel(df_kamus, hide_index=True)
 
     st.markdown("**Download hasil:**")
-    d1, d2, d3 = st.columns(3)
+    d1, d2 = st.columns(2)
     d1.download_button("⬇️ data_normalisasi.csv",
-                       df_normal.to_csv(index=False, encoding="utf-8-sig"),
-                       "data_normalisasi.csv", "text/csv")
-    d2.download_button("⬇️ data_normalisasi_berlabel.csv",
-                       df_berlabel.to_csv(index=False, encoding="utf-8-sig"),
-                       "data_normalisasi_berlabel.csv", "text/csv")
-    d3.download_button("⬇️ kamus_normalisasi.csv",
-                       df_kamus.to_csv(index=False, encoding="utf-8-sig"),
-                       "kamus_normalisasi.csv", "text/csv")
+                       tabel[["created_at", "username", "full_text", "clean_text", "normal_text"]]
+                       .rename(columns={"clean_text": "teks_cleansing", "normal_text": "teks_normalisasi"})
+                       .to_csv(index=False).encode("utf-8-sig"),
+                       file_name="data_normalisasi.csv", mime="text/csv")
+    d2.download_button("⬇️ kamus_normalisasi.csv",
+                       df_kamus.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="kamus_normalisasi.csv", mime="text/csv")
 
-# ---------------- Distribusi ----------------
-with tab3:
-    st.subheader("Distribusi Sentimen")
-    jumlah = df["sentimen"].value_counts().reindex(KELAS, fill_value=0)
-    warna = [WARNA[k] for k in KELAS]
-    c1, c2 = st.columns(2)
-    with c1:
-        fig, ax = plt.subplots()
-        ax.bar(KELAS, jumlah.values, color=warna)
-        for i, v in enumerate(jumlah.values):
-            ax.text(i, v, str(v), ha="center", va="bottom")
+# ----------------------------------------------------------------------------
+# Tab 2: distribusi (Langkah 5)
+# ----------------------------------------------------------------------------
+with tab_dist:
+    dist = df["sentimen"].value_counts().reindex(LABEL_ORDER).fillna(0).astype(int)
+    total = max(int(dist.sum()), 1)
+
+    kolom = st.columns(3)
+    for k, lab in zip(kolom, LABEL_ORDER):
+        k.metric(f"{EMOJI[lab]} {lab.capitalize()}", int(dist[lab]))
+        k.caption(f"{dist[lab] / total:.2%} dari total")
+
+    kiri, kanan = st.columns(2)
+
+    with kiri:
+        fig, ax = plt.subplots(figsize=(5.5, 4))
+        bars = ax.bar(dist.index, dist.values, color=[WARNA[l] for l in dist.index])
+        ax.bar_label(bars, padding=3)
+        ax.set_title("Jumlah Tweet per Sentimen")
         ax.set_ylabel("Jumlah tweet")
-        ax.set_title("Bar Chart")
-        st.pyplot(fig)
-        plt.close(fig)
-    with c2:
-        fig, ax = plt.subplots()
-        ax.pie(jumlah.values, labels=KELAS, colors=warna, autopct="%1.1f%%", startangle=90)
-        ax.set_title("Pie Chart")
-        st.pyplot(fig)
-        plt.close(fig)
-    st.dataframe(jumlah.rename("jumlah").to_frame().T)
+        ax.set_ylim(0, dist.max() * 1.15 if dist.max() > 0 else 1)
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        tampil_plot(fig)
 
-# ---------------- WordCloud ----------------
-with tab4:
-    st.subheader("WordCloud per Sentimen")
-    cmap = {"positif": "Greens", "netral": "Greys", "negatif": "Reds"}
-    cols = st.columns(3)
-    for col, k in zip(cols, KELAS):
-        teks = " ".join(df.loc[df["sentimen"] == k, "normal_text"])
-        with col:
-            st.markdown(f"**{k.capitalize()}** {EMOJI[k]}")
+    with kanan:
+        ada = dist[dist > 0]  # kelas kosong tidak digambar agar label tidak menumpuk
+        fig, ax = plt.subplots(figsize=(5.5, 4))
+        ax.pie(ada.values, labels=[l.capitalize() for l in ada.index],
+               colors=[WARNA[l] for l in ada.index], autopct="%1.1f%%", startangle=90,
+               pctdistance=0.7, textprops={"fontsize": 10},
+               wedgeprops={"edgecolor": "white", "linewidth": 1.5})
+        ax.set_title("Proporsi Sentimen")
+        ax.axis("equal")
+        fig.tight_layout()
+        tampil_plot(fig)
+
+# ----------------------------------------------------------------------------
+# Tab 3: WordCloud (Langkah 6)
+# ----------------------------------------------------------------------------
+with tab_wc:
+    kolom = st.columns(3)
+    for k, lab in zip(kolom, LABEL_ORDER):
+        with k:
+            st.subheader(f"{EMOJI[lab]} {lab.capitalize()}")
+            teks = " ".join(df.loc[df["sentimen"] == lab, "normal_text"])
             if teks.strip():
-                wc = WordCloud(width=500, height=350, background_color="white",
-                               colormap=cmap[k], stopwords=STOPWORDS).generate(teks)
-                fig, ax = plt.subplots()
+                wc = WordCloud(width=600, height=400, background_color="white", colormap=CMAP[lab],
+                               stopwords=STOPWORD, max_words=100).generate(teks)
+                fig, ax = plt.subplots(figsize=(6, 4))
                 ax.imshow(wc, interpolation="bilinear")
                 ax.axis("off")
-                st.pyplot(fig)
-                plt.close(fig)
+                fig.tight_layout(pad=0)
+                tampil_plot(fig)
             else:
                 st.info("Tidak ada data.")
 
-# ---------------- Model ----------------
-with tab5:
-    st.subheader("Neural Network (MLP) + TF-IDF")
-    if not model_siap:
-        st.warning("Model belum bisa dilatih: dibutuhkan minimal 2 kelas sentimen dan setiap kelas minimal 2 data.")
-    else:
-        acc = accuracy_score(y_te, y_pred)
-        prec = precision_score(y_te, y_pred, average="weighted", zero_division=0)
-        rec = recall_score(y_te, y_pred, average="weighted", zero_division=0)
-        f1 = f1_score(y_te, y_pred, average="weighted", zero_division=0)
+# ----------------------------------------------------------------------------
+# Tab 4: evaluasi (Langkah 7 & 8)
+# ----------------------------------------------------------------------------
+with tab_eval:
+    y_test, y_pred = hasil_model["y_test"], hasil_model["y_pred"]
+    labels_ada = [l for l in LABEL_ORDER if l in set(df["sentimen"])]
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Akurasi", f"{acc:.3f}")
-        m2.metric("Presisi", f"{prec:.3f}")
-        m3.metric("Recall", f"{rec:.3f}")
-        m4.metric("F1-Score", f"{f1:.3f}")
-        st.caption(f"Data latih {n_latih} | data uji {len(y_te)} (rasio 80:20). Metrik = rata-rata weighted.")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Data latih (80%)", hasil_model["n_train"])
+    c2.metric("Data uji (20%)", hasil_model["n_test"])
+    c3.metric("Fitur TF-IDF", hasil_model["n_fitur"])
+    c4.metric("Neuron hidden", hidden)
 
-        laporan = pd.DataFrame(classification_report(
-            y_te, y_pred, labels=KELAS, output_dict=True, zero_division=0)).T.round(3)
-        st.dataframe(laporan)
+    p, r, f, _ = precision_recall_fscore_support(y_test, y_pred, average="weighted", zero_division=0)
+    ringkas = pd.DataFrame({
+        "Metrik": ["Akurasi", "Presisi (weighted)", "Recall (weighted)", "F1-Score (weighted)"],
+        "Nilai": [accuracy_score(y_test, y_pred), p, r, f]}).round(4)
 
-        c1, c2 = st.columns(2)
-        with c1:
-            cm = confusion_matrix(y_te, y_pred, labels=KELAS)
-            fig, ax = plt.subplots()
-            im = ax.imshow(cm, cmap="Blues")
-            ax.set_xticks(range(3)); ax.set_xticklabels(KELAS)
-            ax.set_yticks(range(3)); ax.set_yticklabels(KELAS)
-            ax.set_xlabel("Prediksi"); ax.set_ylabel("Aktual"); ax.set_title("Confusion Matrix")
-            for i in range(3):
-                for j in range(3):
-                    ax.text(j, i, cm[i, j], ha="center", va="center",
-                            color="white" if cm[i, j] > cm.max() / 2 else "black")
-            fig.colorbar(im)
-            st.pyplot(fig)
-            plt.close(fig)
-        with c2:
-            fig, ax = plt.subplots()
-            nilai = [acc, prec, rec, f1]
-            ax.bar(["Akurasi", "Presisi", "Recall", "F1"], nilai, color="#3b7dd8")
-            ax.set_ylim(0, 1.1)
-            for i, v in enumerate(nilai):
-                ax.text(i, v + 0.02, f"{v:.3f}", ha="center")
-            ax.set_title("Metrik Performa")
-            st.pyplot(fig)
-            plt.close(fig)
+    kiri, kanan = st.columns(2)
+    with kiri:
+        st.subheader("Tabel metrik")
+        tampil_tabel(ringkas, hide_index=True)
+        st.subheader("Laporan per kelas")
+        tampil_tabel(pd.DataFrame(classification_report(
+            y_test, y_pred, labels=labels_ada, output_dict=True, zero_division=0)).T.round(3))
+    with kanan:
+        st.subheader("Grafik metrik")
+        fig, ax = plt.subplots(figsize=(5.5, 3.8))
+        bars = ax.bar(ringkas["Metrik"], ringkas["Nilai"], color="#4a90d9")
+        ax.bar_label(bars, fmt="%.3f", padding=3)
+        ax.set_ylim(0, 1.15)
+        ax.tick_params(axis="x", rotation=20)
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        tampil_plot(fig)
 
-        fig, ax = plt.subplots(figsize=(6, 2.5))
-        ax.plot(mlp.loss_curve_)
-        ax.set_xlabel("Iterasi"); ax.set_ylabel("Loss"); ax.set_title("Kurva Loss Training")
-        st.pyplot(fig)
-        plt.close(fig)
+    st.subheader("Confusion Matrix")
+    cm = confusion_matrix(y_test, y_pred, labels=labels_ada)
+    _, tengah, _ = st.columns([1, 2, 1])
+    with tengah:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.imshow(cm, cmap="Blues")
+        ax.set_xticks(range(len(labels_ada)), labels_ada)
+        ax.set_yticks(range(len(labels_ada)), labels_ada)
+        ax.set_xlabel("Prediksi")
+        ax.set_ylabel("Aktual")
+        for i in range(len(labels_ada)):
+            for j in range(len(labels_ada)):
+                ax.text(j, i, cm[i, j], ha="center", va="center",
+                        color="white" if cm[i, j] > cm.max() / 2 else "black")
+        fig.tight_layout()
+        tampil_plot(fig)
 
-# ---------------- Prediksi ----------------
-with tab6:
-    st.subheader("Prediksi Sentimen Teks Baru")
-    if not model_siap:
-        st.warning("Model belum tersedia, lihat tab Model & Evaluasi.")
-    else:
-        teks_baru = st.text_area("Masukkan teks tentang kualitas air:",
-                                 "Air PDAM di rumah saya keruh dan bau, sangat mengecewakan")
-        if st.button("Prediksi"):
-            dibersihkan = bersihkan(teks_baru)
-            bersih = normalisasi(dibersihkan)
-            if not bersih:
-                st.warning("Teks kosong setelah dibersihkan.")
-            else:
-                vek = tfidf.transform([bersih])
-                hasil = mlp.predict(vek)[0]
-                proba = mlp.predict_proba(vek)[0]
-                st.markdown(f"### {EMOJI[hasil]} Sentimen: **{hasil.upper()}**")
-                st.write("Setelah cleansing:", f"`{dibersihkan}`")
-                st.write("Setelah normalisasi:", f"`{bersih}`")
-                dfp = pd.DataFrame({"sentimen": mlp.classes_, "probabilitas": proba}).set_index("sentimen")
-                dfp = dfp.reindex(KELAS).fillna(0)
-                dfp.index = [f"{EMOJI[k]} {k}" for k in dfp.index]
-                st.bar_chart(dfp)
-                st.dataframe(dfp.style.format("{:.2%}"))
+    st.warning(
+        "**Catatan:** label dibuat otomatis dari kamus kata positif/negatif, lalu kata-kata yang sama "
+        "menjadi fitur TF-IDF. Karena itu akurasi yang sangat tinggi (bahkan 100%) belum membuktikan "
+        "model memahami sentimen sebenarnya. Anggap ini evaluasi awal; untuk evaluasi yang kuat, beri "
+        "label manual pada sebagian tweet.")
+
+# ----------------------------------------------------------------------------
+# Tab 5: prediksi teks baru (Langkah 9)
+# ----------------------------------------------------------------------------
+with tab_pred:
+    st.subheader("Prediksi sentimen teks baru")
+    teks_baru = st.text_area(
+        "Masukkan teks", height=110, key="teks_baru",
+        value="Listrik sudah menyala kembali, warga lega dan terima kasih kepada petugas PLN")
+    if st.button("Prediksi Sentimen", type="primary", key="tombol_prediksi"):
+        if not teks_baru.strip():
+            st.warning("Teks masih kosong. Ketik kalimat terlebih dahulu.")
+        else:
+            dibersihkan, bersih, label, proba = prediksi(teks_baru, hasil_model)
+            st.markdown(f"### {EMOJI[label]} {label.upper()}")
+            st.write(f"**Setelah cleansing:** {dibersihkan}")
+            st.write(f"**Setelah normalisasi:** {bersih}")
+            for k in LABEL_ORDER:
+                if k in proba:
+                    st.write(f"{EMOJI[k]} {k.capitalize()} — {proba[k]:.2%}")
+                    st.progress(float(proba[k]))
