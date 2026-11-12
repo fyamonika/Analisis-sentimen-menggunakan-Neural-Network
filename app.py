@@ -243,13 +243,17 @@ with tab1:
 with tab2:
     st.subheader("Hasil Normalisasi")
 
-    berubah = df[df["clean_text"] != df["normal_text"]].copy()
-    st.write(f"**{len(berubah)}** dari **{len(df)}** tweet berubah pada tahap normalisasi.")
+    tabel = df[["full_text", "clean_text", "normal_text"]].copy()
+    tabel["berubah"] = tabel["clean_text"] != tabel["normal_text"]
+    tabel["kata diganti"] = [kata_diganti(a, b) for a, b in zip(tabel["clean_text"], tabel["normal_text"])]
 
-    berubah["kata diganti"] = [kata_diganti(a, b) for a, b in zip(berubah["clean_text"], berubah["normal_text"])]
+    st.write(f"**{int(tabel['berubah'].sum())}** dari **{len(tabel)}** tweet berubah pada tahap normalisasi.")
+    hanya_berubah = st.checkbox("Tampilkan hanya tweet yang berubah", value=False)
+    if hanya_berubah:
+        tabel = tabel[tabel["berubah"]]
 
     st.dataframe(
-        berubah[["full_text", "clean_text", "normal_text", "kata diganti"]].rename(columns={
+        tabel[["full_text", "clean_text", "normal_text", "kata diganti"]].rename(columns={
             "full_text": "teks asli",
             "clean_text": "setelah cleansing",
             "normal_text": "setelah normalisasi"}),
