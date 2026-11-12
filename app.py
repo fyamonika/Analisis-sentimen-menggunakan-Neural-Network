@@ -2,6 +2,7 @@ import difflib
 import io
 import os
 import re
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
 
 st.set_page_config(page_title="Sentimen Kualitas Air", page_icon="💧", layout="wide")
 st.title("💧 Analisis Sentimen Kualitas Air (Neural Network)")
-st.caption("Versi kode: normalisasi-v4")
+st.caption("Versi kode: normalisasi-v5")
 
 KELAS = ["positif", "netral", "negatif"]
 WARNA = {"positif": "#2e9e5b", "netral": "#7f8c8d", "negatif": "#d64545"}
@@ -244,20 +245,60 @@ with tab1:
 
 # ---------------- Normalisasi ----------------
 with tab2:
-    st.subheader("Hasil Normalisasi")
+    st.subheader("🧹 Hasil Normalisasi")
 
     tabel = df[["created_at", "username", "full_text", "clean_text", "normal_text"]].copy()
     tabel["berubah"] = tabel["clean_text"] != tabel["normal_text"]
     tabel["kata_diganti"] = [kata_diganti(a, b) for a, b in zip(tabel["clean_text"], tabel["normal_text"])]
 
-    c1, c2 = st.columns(2)
+    n_berubah = int(tabel["berubah"].sum())
+    c1, c2, c3 = st.columns(3)
     c1.metric("Jumlah tweet", len(tabel))
-    c2.metric("Tweet yang berubah", int(tabel["berubah"].sum()))
+    c2.metric("Tweet yang berubah", n_berubah)
+    c3.metric("Persentase berubah", f"{n_berubah / len(tabel):.1%}")
 
-    if st.checkbox("Tampilkan hanya tweet yang berubah", value=False):
-        tabel = tabel[tabel["berubah"]]
+    # --- Contoh sebelum -> sesudah ---
+    st.markdown("#### Contoh sebelum → sesudah")
+    contoh = tabel[tabel["berubah"]].head(5)
+    if contoh.empty:
+        st.info("Tidak ada tweet yang berubah oleh normalisasi.")
+    for _, r in contoh.iterrows():
+        kiri, kanan = st.columns(2)
+        kiri.markdown(f"**Sebelum (cleansing)**\n\n{r['clean_text']}")
+        kanan.markdown(f"**Sesudah (normalisasi)**\n\n{r['normal_text']}")
+        st.caption(f"Kata diganti: {r['kata_diganti']}")
+        st.divider()
 
-    st.dataframe(tabel[["created_at", "username", "full_text", "clean_text", "normal_text", "kata_diganti"]])
+    # --- Kata yang paling sering diganti ---
+    st.markdown("#### Kata yang paling sering diganti")
+    hitung = Counter()
+    for s in tabel["kata_diganti"]:
+        for item in s.split(", "):
+            if item:
+                hitung[item] += 1
+    if hitung:
+        top = pd.DataFrame(hitung.most_common(15), columns=["penggantian", "jumlah"])
+        st.dataframe(top, hide_index=True, use_container_width=True)
+    else:
+        st.caption("Belum ada kata yang diganti.")
+
+    # --- Uji normalisasi langsung ---
+    st.markdown("#### Coba normalisasi teks sendiri")
+    uji = st.text_input("Ketik kalimat tidak baku:", "airnya keruuuh bgt gak layak dipake, udh lama kecewa")
+    if uji.strip():
+        u_bersih = bersihkan(uji)
+        u_norm = normalisasi(u_bersih)
+        st.write("Setelah cleansing:", f"`{u_bersih}`")
+        st.write("Setelah normalisasi:", f"`{u_norm}`")
+        st.write("Kata diganti:", kata_diganti(u_bersih, u_norm) or "-")
+
+    # --- Tabel lengkap ---
+    st.markdown("#### Tabel lengkap")
+    hanya_berubah = st.checkbox("Tampilkan hanya tweet yang berubah", value=False)
+    tampil = tabel[tabel["berubah"]] if hanya_berubah else tabel
+    st.dataframe(
+        tampil[["created_at", "username", "full_text", "clean_text", "normal_text", "kata_diganti"]],
+        use_container_width=True)
 
     with st.expander("📖 Kamus normalisasi yang dipakai"):
         st.dataframe(df_kamus, use_container_width=True)
